@@ -6,6 +6,7 @@ firmware/include/secrets.h
 .pioenvs/
 .piolibdeps/
 firmware/.arduino15/
+firmware/build/
 build/
 *.elf
 *.bin
