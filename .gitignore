@@ -1,0 +1,30 @@
+# Credentials — never commit
+firmware/include/secrets.h
+
+# Arduino / PlatformIO build artifacts
+.pio/
+.pioenvs/
+.piolibdeps/
+firmware/.arduino15/
+build/
+*.elf
+*.bin
+*.hex
+*.map
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Editor
+.vscode/
+.cursor/
+*.swp
