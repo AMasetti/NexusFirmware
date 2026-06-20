@@ -17,7 +17,10 @@
 //   },
 //   "joints": {
 //     "l_hip_roll": <rad>, "l_hip_pitch": <rad>, "l_knee": <rad>, "l_ankle_roll": <rad>,
-//     "r_hip_roll": <rad>, "r_hip_pitch": <rad>, "r_knee": <rad>, "r_ankle_roll": <rad>
+//     "r_hip_roll": <rad>, "r_hip_pitch": <rad>, "r_knee": <rad>, "r_ankle_roll": <rad>,
+//     "r_shoulder_fb": <rad>, "r_shoulder_lat": <rad>, "r_forearm_lat": <rad>,
+//     "l_shoulder_fb": <rad>, "l_shoulder_lat": <rad>, "l_forearm_lat": <rad>,
+//     "hip_yaw": <rad>
 //   }
 // }
 //
@@ -37,6 +40,7 @@ struct RobotState {
     IMUEstimate      imu;       // pitch, roll, yaw_rate from complementary filter
     MPU6050::RawData raw;       // raw accel/gyro int16 values (scaled in build_json)
     LegAngles        legs;
+    float            arms[7];   // r_shoulder_fb, r_shoulder_lat, r_forearm_lat, l_shoulder_fb, l_shoulder_lat, l_forearm_lat, hip_yaw
     CPGParams        cpg;       // retained for legacy command handling
     uint32_t         timestamp_ms;
 };
@@ -66,6 +70,6 @@ private:
     ParamCallback param_cb_;
     bool          connected_;
 
-    char tx_buf_[640];  // enlarged for extended IMU JSON
+    char tx_buf_[800];  // enlarged for full 15-DOF joint telemetry
     void build_json(const RobotState& state, char* buf, size_t buf_size);
 };

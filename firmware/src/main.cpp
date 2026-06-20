@@ -49,6 +49,7 @@ Telemetry      telemetry;
 SemaphoreHandle_t   state_mutex;
 volatile IMUEstimate g_imu_estimate = {0.0f, 0.0f, 0.0f};
 volatile LegAngles   g_leg_angles;
+volatile float       g_arm_angles[7] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 volatile float       g_time_s = 0.0f;
 volatile float       g_sway_target_mm = 0.0f;
 
@@ -171,6 +172,9 @@ static void on_param(const char* cmd, const char* joint, float value) {
                 float clamped = fmaxf(aj.min_rad, fminf(aj.max_rad, value));
                 float deg = clamped * RAD2DEG * aj.dir + aj.offset_deg + 90.0f;
                 servos.set_angle(aj.ch, deg);
+                xSemaphoreTake(state_mutex, portMAX_DELAY);
+                g_arm_angles[arm_idx] = clamped;
+                xSemaphoreGive(state_mutex);
             }
         }
     } else if (strcmp(cmd, "set_period") == 0) {
@@ -244,6 +248,7 @@ static void task_telemetry(void* /*arg*/) {
                 {g_leg_angles.right.hip_roll, g_leg_angles.right.hip_pitch,
                  g_leg_angles.right.knee,     g_leg_angles.right.ankle_roll}
             };
+            for (int i = 0; i < 7; ++i) state.arms[i] = g_arm_angles[i];
             xSemaphoreGive(state_mutex);
             // raw_ is only written in task_imu; reading here without mutex is safe
             // (worst case we get a slightly stale sample, acceptable at 10 Hz)
