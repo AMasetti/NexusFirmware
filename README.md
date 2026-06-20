@@ -105,13 +105,23 @@ The Super Mini has no auto-reset circuit. **Hold BOOT, plug in USB, release BOOT
 
 ## WiFi & network
 
-Configure in `include/config.h`:
+Credentials live in `firmware/include/secrets.h` (git-ignored). Copy the template and fill in your values:
+
+```bash
+cp firmware/include/secrets.h.example firmware/include/secrets.h
+```
 
 ```c
+// secrets.h
 #define WIFI_SSID      "your_network"
 #define WIFI_PASSWORD  "your_password"
-#define WS_PORT        81
-#define MDNS_HOSTNAME  "optimus"   // reachable as optimus.local
+```
+
+Other network settings in `firmware/include/config.h`:
+
+```c
+#define WS_PORT       81
+#define MDNS_HOSTNAME "optimus"   // reachable as optimus.local
 ```
 
 On boot the robot prints its MAC and announces `optimus.local` via mDNS. Reserve the MAC in your router for a static IP as a backup.
