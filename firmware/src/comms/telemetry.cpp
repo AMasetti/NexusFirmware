@@ -43,6 +43,13 @@ static void ws_event(uint8_t num, WStype_t type, uint8_t* payload, size_t length
                 memcpy(buf, payload, n);
                 buf[n] = '\0';
 
+                // Reject commands with missing or wrong token
+                char token[128] = {};
+                if (!extract_str(buf, "\"token\"", token, sizeof(token)) ||
+                    strcmp(token, WS_TOKEN) != 0) {
+                    break;
+                }
+
                 char cmd[64]   = {};
                 char joint[32] = {};
                 float value    = 0.0f;
