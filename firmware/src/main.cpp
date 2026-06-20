@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <freertos/FreeRTOS.h>
+// ci-trigger
 #include <freertos/task.h>
 #include <freertos/semphr.h>
 
