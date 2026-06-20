@@ -131,7 +131,10 @@ void Telemetry::build_json(const RobotState& s, char* buf, size_t sz) {
         "},"
         "\"joints\":{"
           "\"l_hip_roll\":%.4f,\"l_hip_pitch\":%.4f,\"l_knee\":%.4f,\"l_ankle_roll\":%.4f,"
-          "\"r_hip_roll\":%.4f,\"r_hip_pitch\":%.4f,\"r_knee\":%.4f,\"r_ankle_roll\":%.4f"
+          "\"r_hip_roll\":%.4f,\"r_hip_pitch\":%.4f,\"r_knee\":%.4f,\"r_ankle_roll\":%.4f,"
+          "\"r_shoulder_fb\":%.4f,\"r_shoulder_lat\":%.4f,\"r_forearm_lat\":%.4f,"
+          "\"l_shoulder_fb\":%.4f,\"l_shoulder_lat\":%.4f,\"l_forearm_lat\":%.4f,"
+          "\"hip_yaw\":%.4f"
         "}"
         "}",
         (unsigned long)s.timestamp_ms,
@@ -141,7 +144,10 @@ void Telemetry::build_json(const RobotState& s, char* buf, size_t sz) {
         s.legs.left.hip_roll,   s.legs.left.hip_pitch,
         s.legs.left.knee,       s.legs.left.ankle_roll,
         s.legs.right.hip_roll,  s.legs.right.hip_pitch,
-        s.legs.right.knee,      s.legs.right.ankle_roll
+        s.legs.right.knee,      s.legs.right.ankle_roll,
+        s.arms[0], s.arms[1], s.arms[2],
+        s.arms[3], s.arms[4], s.arms[5],
+        s.arms[6]
     );
 }
 
