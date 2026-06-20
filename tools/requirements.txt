@@ -1,0 +1,2 @@
+joycon-python
+websocket-client

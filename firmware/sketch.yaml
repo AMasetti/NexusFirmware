@@ -1,0 +1,13 @@
+# Arduino CLI sketch configuration
+# Board: ESP32 Super Mini C3
+#
+# FQBN breakdown:
+#   USBMode=hwcdc   → use the native USB-CDC port (required on Super Mini C3)
+#   CDCOnBoot=cdc   → USB serial available immediately after boot (no USB-UART chip)
+#
+# First-time setup:
+#   arduino-cli core install esp32:esp32
+#   arduino-cli lib install "WebSockets"        # arduinoWebSockets by Links2004
+
+default_fqbn: esp32:esp32:esp32c3:CDCOnBoot=cdc,PartitionScheme=huge_app
+default_port: /dev/ttyACM0      # Linux — change to COMx on Windows, /dev/cu.usbmodem* on macOS

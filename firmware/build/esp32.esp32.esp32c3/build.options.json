@@ -1,0 +1,9 @@
+{
+  "additionalFiles": "../../..,../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../../..,../../..,../../../..,../../../..",
+  "compiler.optimization_flags": "-Os",
+  "customBuildProperties": "",
+  "fqbn": "esp32:esp32:esp32c3:CDCOnBoot=cdc,PartitionScheme=huge_app",
+  "hardwareFolders": "/Volumes/MacMiniX/amasetti/Library/Arduino15/packages/esp32/hardware/esp32/3.3.8,/Volumes/MacMiniX/amasetti/Library/Arduino15/packages/esp32/hardware/esp32/3.3.8",
+  "otherLibrariesFolders": "/Volumes/MacMiniX/amasetti/Documents/Arduino/libraries",
+  "sketchLocation": "/Volumes/MacMiniX/amasetti/Main/robotics/optimus/firmware"
+}
