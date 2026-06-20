@@ -19,6 +19,30 @@
 #define SERVO_PWM_MIN    600     // µs  (was 500 — matched to old robot)
 #define SERVO_PWM_MAX   2650     // µs  (was 2400 — matched to old robot)
 
+// ─── Per-joint soft limits [degrees] ─────────────────────────────────────────
+// Applied to all incoming set_joint commands before writing to the servo.
+// Exceed these and you risk binding joints or stripping gears.
+
+// Legs (MG995)
+#define JOINT_HIP_ROLL_MIN_DEG        -45.0f
+#define JOINT_HIP_ROLL_MAX_DEG         45.0f
+#define JOINT_HIP_PITCH_MIN_DEG       -45.0f
+#define JOINT_HIP_PITCH_MAX_DEG        45.0f
+#define JOINT_KNEE_MIN_DEG            -70.0f
+#define JOINT_KNEE_MAX_DEG             70.0f
+#define JOINT_ANKLE_ROLL_MIN_DEG      -90.0f
+#define JOINT_ANKLE_ROLL_MAX_DEG       90.0f
+
+// Arms (Futaba S3003)
+#define JOINT_SHOULDER_FB_MIN_DEG    -120.0f
+#define JOINT_SHOULDER_FB_MAX_DEG     120.0f
+#define JOINT_SHOULDER_LAT_MIN_DEG   -120.0f
+#define JOINT_SHOULDER_LAT_MAX_DEG    120.0f
+#define JOINT_FOREARM_LAT_MIN_DEG     -90.0f
+#define JOINT_FOREARM_LAT_MAX_DEG      90.0f
+#define JOINT_HIP_YAW_MIN_DEG         -45.0f
+#define JOINT_HIP_YAW_MAX_DEG          45.0f
+
 // ─── Servo limits — Futaba S3003 (arms) ───────────────────────────────────────
 // Standard Futaba S3003: 900–2100 µs, center at 1500 µs (90°).
 // T-pose = 90° on all arm channels = pulse center, zero trim offset needed.

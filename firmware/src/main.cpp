@@ -77,19 +77,56 @@ void write_arms_tpose() {
     }
 }
 
+// ─── Per-joint soft limits [radians] ─────────────────────────────────────────
+struct JointLimits { float min_rad; float max_rad; };
+
+// Leg joints [0–3]: hip_roll, hip_pitch, knee, ankle_roll
+static constexpr JointLimits LEG_LIMITS[4] = {
+    { JOINT_HIP_ROLL_MIN_DEG    * DEG2RAD, JOINT_HIP_ROLL_MAX_DEG    * DEG2RAD },
+    { JOINT_HIP_PITCH_MIN_DEG   * DEG2RAD, JOINT_HIP_PITCH_MAX_DEG   * DEG2RAD },
+    { JOINT_KNEE_MIN_DEG        * DEG2RAD, JOINT_KNEE_MAX_DEG         * DEG2RAD },
+    { JOINT_ANKLE_ROLL_MIN_DEG  * DEG2RAD, JOINT_ANKLE_ROLL_MAX_DEG   * DEG2RAD },
+};
+
+// Arm channels with their limits and PCA9685 channel number
+struct ArmJoint { uint8_t ch; float dir; float offset_deg; float min_rad; float max_rad; };
+static constexpr ArmJoint ARM_JOINTS[] = {
+    { SERVO_R_SHOULDER_FB,  ARM_SERVO_DIR_R_SHOULDER_FB,  ARM_SERVO_OFFSET_DEG_R_SHOULDER_FB,  JOINT_SHOULDER_FB_MIN_DEG  * DEG2RAD, JOINT_SHOULDER_FB_MAX_DEG  * DEG2RAD },
+    { SERVO_R_SHOULDER_LAT, ARM_SERVO_DIR_R_SHOULDER_LAT, ARM_SERVO_OFFSET_DEG_R_SHOULDER_LAT, JOINT_SHOULDER_LAT_MIN_DEG * DEG2RAD, JOINT_SHOULDER_LAT_MAX_DEG * DEG2RAD },
+    { SERVO_R_FOREARM_LAT,  ARM_SERVO_DIR_R_FOREARM_LAT,  ARM_SERVO_OFFSET_DEG_R_FOREARM_LAT,  JOINT_FOREARM_LAT_MIN_DEG  * DEG2RAD, JOINT_FOREARM_LAT_MAX_DEG  * DEG2RAD },
+    { SERVO_L_SHOULDER_FB,  ARM_SERVO_DIR_L_SHOULDER_FB,  ARM_SERVO_OFFSET_DEG_L_SHOULDER_FB,  JOINT_SHOULDER_FB_MIN_DEG  * DEG2RAD, JOINT_SHOULDER_FB_MAX_DEG  * DEG2RAD },
+    { SERVO_L_SHOULDER_LAT, ARM_SERVO_DIR_L_SHOULDER_LAT, ARM_SERVO_OFFSET_DEG_L_SHOULDER_LAT, JOINT_SHOULDER_LAT_MIN_DEG * DEG2RAD, JOINT_SHOULDER_LAT_MAX_DEG * DEG2RAD },
+    { SERVO_L_FOREARM_LAT,  ARM_SERVO_DIR_L_FOREARM_LAT,  ARM_SERVO_OFFSET_DEG_L_FOREARM_LAT,  JOINT_FOREARM_LAT_MIN_DEG  * DEG2RAD, JOINT_FOREARM_LAT_MAX_DEG  * DEG2RAD },
+    { SERVO_HIP_YAW,        ARM_SERVO_DIR_HIP_YAW,        ARM_SERVO_OFFSET_DEG_HIP_YAW,        JOINT_HIP_YAW_MIN_DEG      * DEG2RAD, JOINT_HIP_YAW_MAX_DEG      * DEG2RAD },
+};
+
 // ─── Joint name → leg index + joint index ─────────────────────────────────────
-// Returns false if name not recognised.
+// For leg joints: returns true, sets leg (0=L,1=R) and jnt (0–3).
+// For arm joints: returns false with leg=0xFF as sentinel — caller checks arm map.
 static bool resolve_joint(const char* name, uint8_t& leg, uint8_t& jnt) {
-    struct { const char* n; uint8_t l; uint8_t j; } MAP[] = {
+    struct { const char* n; uint8_t l; uint8_t j; } LEG_MAP[] = {
         { "l_hip_roll",   0, 0 }, { "l_hip_pitch",  0, 1 },
         { "l_knee",       0, 2 }, { "l_ankle_roll", 0, 3 },
         { "r_hip_roll",   1, 0 }, { "r_hip_pitch",  1, 1 },
         { "r_knee",       1, 2 }, { "r_ankle_roll", 1, 3 },
     };
-    for (const auto& e : MAP) {
+    for (const auto& e : LEG_MAP) {
         if (strcmp(name, e.n) == 0) { leg = e.l; jnt = e.j; return true; }
     }
     return false;
+}
+
+// Returns index into ARM_JOINTS[], or -1 if not found.
+static int resolve_arm_joint(const char* name) {
+    static const char* ARM_NAMES[] = {
+        "r_shoulder_fb", "r_shoulder_lat", "r_forearm_lat",
+        "l_shoulder_fb", "l_shoulder_lat", "l_forearm_lat",
+        "hip_yaw",
+    };
+    for (int i = 0; i < 7; ++i) {
+        if (strcmp(name, ARM_NAMES[i]) == 0) return i;
+    }
+    return -1;
 }
 
 // ─── Telemetry parameter callback ─────────────────────────────────────────────
@@ -97,7 +134,7 @@ static void on_param(const char* cmd, const char* joint, float value) {
     if (strcmp(cmd, "set_joint") == 0 && joint[0] != '\0') {
         uint8_t leg = 0, jnt_idx = 0;
         if (resolve_joint(joint, leg, jnt_idx)) {
-            // Read current leg angles — memcpy strips volatile
+            // Leg joint — clamp, write servo, update shared state
             JointAngles q;
             xSemaphoreTake(state_mutex, portMAX_DELAY);
             if (leg == 0) {
@@ -107,11 +144,12 @@ static void on_param(const char* cmd, const char* joint, float value) {
             }
             xSemaphoreGive(state_mutex);
 
+            const JointLimits& lim = LEG_LIMITS[jnt_idx];
+            float clamped = fmaxf(lim.min_rad, fminf(lim.max_rad, value));
             float* fields[4] = { &q.hip_roll, &q.hip_pitch, &q.knee, &q.ankle_roll };
-            *fields[jnt_idx] = value;
+            *fields[jnt_idx] = clamped;
             write_leg(q, leg);
 
-            // Write back so telemetry reflects the new set point
             xSemaphoreTake(state_mutex, portMAX_DELAY);
             if (leg == 0) {
                 g_leg_angles.left.hip_roll   = q.hip_roll;
@@ -125,6 +163,15 @@ static void on_param(const char* cmd, const char* joint, float value) {
                 g_leg_angles.right.ankle_roll = q.ankle_roll;
             }
             xSemaphoreGive(state_mutex);
+        } else {
+            // Arm joint — clamp and write directly to PCA9685
+            int arm_idx = resolve_arm_joint(joint);
+            if (arm_idx >= 0) {
+                const ArmJoint& aj = ARM_JOINTS[arm_idx];
+                float clamped = fmaxf(aj.min_rad, fminf(aj.max_rad, value));
+                float deg = clamped * RAD2DEG * aj.dir + aj.offset_deg + 90.0f;
+                servos.set_angle(aj.ch, deg);
+            }
         }
     } else if (strcmp(cmd, "set_period") == 0) {
         cpg.set_period(value);
