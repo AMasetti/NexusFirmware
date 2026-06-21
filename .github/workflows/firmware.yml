@@ -38,6 +38,9 @@ jobs:
       - name: Install libraries
         run: arduino-cli lib install "WebSockets"
 
+      - name: Create secrets.h for CI
+        run: cp firmware/include/secrets.h.example firmware/include/secrets.h
+
       - name: Compile
         run: |
           mkdir -p firmware/build
