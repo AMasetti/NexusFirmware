@@ -96,22 +96,27 @@ class RLRunner:
         from stable_baselines3 import PPO
         from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
-        run_dir  = os.path.dirname(os.path.abspath(model_path))
-        vn_path  = os.path.join(run_dir, "vecnorm.pkl")
+        model_path = os.path.abspath(model_path)
+        run_dir    = os.path.dirname(model_path)
+        vn_path    = os.path.join(run_dir, "vecnorm.pkl")
 
-        # Dummy env just to satisfy VecNormalize API — never stepped
-        import gymnasium as gym
-        dummy = DummyVecEnv([lambda: gym.make("Pendulum-v1")])
         if os.path.exists(vn_path):
-            self._vnorm = VecNormalize.load(vn_path, dummy)
-            self._vnorm.training  = False
-            self._vnorm.norm_reward = False
+            # Load stats directly — no dummy env needed for inference-only normalisation
+            import pickle
+            with open(vn_path, "rb") as f:
+                vn_data = pickle.load(f)
+            # vn_data is a VecNormalize instance; extract running mean/var
+            self._obs_rms = vn_data.obs_rms
+            self._clip_obs = vn_data.clip_obs
             print(f"[runner] VecNormalize loaded from {vn_path}")
         else:
-            self._vnorm = None
+            self._obs_rms = None
+            self._clip_obs = 10.0
             print("[runner] WARNING: no vecnorm.pkl — obs will be unnormalised")
 
-        self._model = PPO.load(model_path, device="cpu")
+        # SB3 appends .zip if not already stripped — strip it to avoid .zip.zip
+        model_path_load = model_path[:-4] if model_path.endswith(".zip") else model_path
+        self._model = PPO.load(model_path_load, device="cpu")
         print(f"[runner] Model loaded: {model_path}")
 
         self._cpg = CPG()
@@ -180,11 +185,10 @@ class RLRunner:
         return np.concatenate([cpg_phase, imu, jpos, jvel])
 
     def _normalize_obs(self, obs: np.ndarray) -> np.ndarray:
-        if self._vnorm is None:
+        if self._obs_rms is None:
             return obs
-        # VecNormalize expects shape (n_envs, obs_dim)
-        obs_2d = obs[np.newaxis, :]
-        return self._vnorm.normalize_obs(obs_2d)[0]
+        obs_norm = (obs - self._obs_rms.mean) / np.sqrt(self._obs_rms.var + 1e-8)
+        return np.clip(obs_norm, -self._clip_obs, self._clip_obs).astype(np.float32)
 
     # ── Main control loop ─────────────────────────────────────────────────────
 
