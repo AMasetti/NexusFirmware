@@ -1,0 +1,7 @@
+default_fqbn: esp32:esp32:esp32c3
+default_port: /dev/cu.usbmodem*
+
+# Libraries required (install via Arduino CLI or IDE Library Manager):
+#   ArduinoJson       >= 7.x
+#   WebSockets        >= 2.4.0  (Markus Sattler)
+#   ESPmDNS           (bundled with esp32 board package)
