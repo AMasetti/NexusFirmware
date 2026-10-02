@@ -1,0 +1,112 @@
+name: Release
+
+# On every push to main: work out the next semver from the Conventional Commits
+# since the last tag (.github/scripts/next-version.sh), build both firmwares and
+# publish the binaries as a GitHub release. No release-worthy commits
+# (only chore/ci/docs/…) → nothing is published.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  FQBN: esp32:esp32:esp32c3:CDCOnBoot=cdc,PartitionScheme=huge_app
+
+jobs:
+  version:
+    name: Determine version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.next.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Next version from commits
+        id: next
+        run: |
+          tag=$(NOTES_FILE=release-notes.md .github/scripts/next-version.sh)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ -n "$tag" ]; then echo "Next release: $tag"; else echo "No feat/fix/breaking commits since the last release — skipping."; fi
+
+      - uses: actions/upload-artifact@v4
+        if: steps.next.outputs.tag != ''
+        with:
+          name: release-notes
+          path: release-notes.md
+
+  release:
+    name: Build & publish ${{ needs.version.outputs.tag }}
+    needs: version
+    if: needs.version.outputs.tag != ''
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 core and libraries
+        run: |
+          arduino-cli config init
+          arduino-cli config set board_manager.additional_urls \
+            https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+          arduino-cli lib install "WebSockets" "ArduinoJson"
+
+      # Placeholder credentials: release binaries never carry real WiFi secrets.
+      - name: Use example secrets
+        run: |
+          cp firmware/include/secrets.h.example firmware/include/secrets.h
+          cp firmware-rl/include/secrets.h.example firmware-rl/include/secrets.h
+
+      - name: Compile firmware and firmware-rl
+        run: |
+          mkdir -p dist
+          for sketch in firmware firmware-rl; do
+            arduino-cli compile --fqbn "$FQBN" --output-dir "build/$sketch" "$sketch/"
+            cp "build/$sketch/$sketch.ino.bin" "dist/optimus-$sketch-$TAG.bin"
+          done
+          ls -lh dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+
+      - name: Add flashing instructions
+        run: |
+          cat >> release-notes.md <<EOF
+
+          ## Flashing
+
+          Binaries are built with placeholder WiFi credentials — copy \`include/secrets.h.example\` to \`include/secrets.h\`, fill it in and build from source to join your network.
+
+          | File | Contents |
+          | --- | --- |
+          | \`optimus-firmware-$TAG.bin\` | gait firmware |
+          | \`optimus-firmware-rl-$TAG.bin\` | RL inference firmware |
+
+          \`\`\`
+          arduino-cli upload --fqbn $FQBN \\
+            --port /dev/cu.usbmodem* --input-file optimus-firmware-$TAG.bin
+          \`\`\`
+          EOF
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes-file release-notes.md

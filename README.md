@@ -217,3 +217,16 @@ optimus/
 ## Safety
 
 The IMU safety cutoff halts all servos and suspends the active task if tilt exceeds `SAFETY_TILT_LIMIT_DEG = 50°`. A board reset is required to resume. Do not disable this when the robot is powered on legs.
+
+## Releases
+
+Every push to `main` runs [`release.yml`](.github/workflows/release.yml), which picks the next version from the [Conventional Commits](https://www.conventionalcommits.org/) since the last `vX.Y.Z` tag and publishes `optimus-firmware-vX.Y.Z.bin` and `optimus-firmware-rl-vX.Y.Z.bin`:
+
+| Commit | Bump | Example |
+|---|---|---|
+| `type!:` or a `BREAKING CHANGE:` footer | major | `feat(comms)!: new telemetry frame` |
+| `feat` | minor | `feat(tools): keyframe walk` |
+| `fix`, `perf`, `refactor` | patch | `fix(firmware-rl): arm offsets` |
+| `chore`, `ci`, `docs`, `style`, `test`, … | none | no release |
+
+The `commit-msg` hook ([`.githooks/commit-msg`](.githooks/commit-msg), enabled by `make hooks`) rejects commits that don't follow this format. Release binaries are built with the placeholder `secrets.h.example` — build from source to embed your own WiFi credentials.

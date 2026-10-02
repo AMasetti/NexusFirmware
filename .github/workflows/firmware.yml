@@ -1,25 +1,24 @@
 name: Firmware CI
 
+# Compile check for both sketches. Releases are published by release.yml.
 on:
   push:
     paths:
-      - 'firmware/src/**'
-      - 'firmware/include/**'
-      - 'firmware/firmware.ino'
-      - 'firmware/sketch.yaml'
-      - 'firmware/Makefile'
+      - 'firmware/**'
+      - 'firmware-rl/**'
   pull_request:
     paths:
-      - 'firmware/src/**'
-      - 'firmware/include/**'
-      - 'firmware/firmware.ino'
-      - 'firmware/sketch.yaml'
-      - 'firmware/Makefile'
+      - 'firmware/**'
+      - 'firmware-rl/**'
 
 jobs:
   compile:
-    name: Compile ESP32-C3 Firmware
+    name: Compile ${{ matrix.sketch }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sketch: [firmware, firmware-rl]
 
     steps:
       - uses: actions/checkout@v4
@@ -36,62 +35,14 @@ jobs:
           arduino-cli core install esp32:esp32
 
       - name: Install libraries
-        run: arduino-cli lib install "WebSockets"
+        run: arduino-cli lib install "WebSockets" "ArduinoJson"
 
       - name: Create secrets.h for CI
-        run: cp firmware/include/secrets.h.example firmware/include/secrets.h
+        run: cp ${{ matrix.sketch }}/include/secrets.h.example ${{ matrix.sketch }}/include/secrets.h
 
       - name: Compile
         run: |
-          mkdir -p firmware/build
           arduino-cli compile \
             --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc,PartitionScheme=huge_app \
-            --output-dir firmware/build \
-            firmware/
-
-      - name: Upload firmware artifact
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: firmware-${{ github.run_number }}
-          path: firmware/build/firmware.ino.bin
-          retention-days: 90
-
-  release:
-    name: Create Firmware Release
-    needs: compile
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download compiled binary
-        uses: actions/download-artifact@v4
-        with:
-          name: firmware-${{ github.run_number }}
-          path: dist/
-
-      - name: Get date tag
-        id: date
-        run: echo "tag=firmware-$(date +'%Y%m%d')-${{ github.run_number }}" >> $GITHUB_OUTPUT
-
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.date.outputs.tag }}
-          name: Firmware ${{ steps.date.outputs.tag }}
-          body: |
-            Automated firmware build from commit ${{ github.sha }}.
-
-            Flash with:
-            ```
-            arduino-cli upload --fqbn esp32:esp32:esp32c3:CDCOnBoot=cdc,PartitionScheme=huge_app \
-              --port /dev/cu.usbmodem* --input-file firmware.ino.bin
-            ```
-          files: dist/firmware.ino.bin
-          draft: false
-          prerelease: false
+            --output-dir build \
+            ${{ matrix.sketch }}/
