@@ -29,3 +29,8 @@ venv/
 .vscode/
 .cursor/
 *.swp
+
+# AI assistant config — local only
+CLAUDE.md
+AGENTS.md
+.claude/

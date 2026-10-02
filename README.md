@@ -206,7 +206,8 @@ optimus/
 │   ├── kinematics.md         # FK/IK derivations, DH parameters, workspace analysis
 │   └── imu-balance.md        # IMU axis orientation, complementary filter, balance gains
 └── tools/
-    └── joycon_sway.py        # DEPRECATED — replaced by futurespace-ui override mode
+    ├── rl_runner.py          # streams trained RL policy actions to firmware-rl over WiFi
+    └── kinematics_plot.py    # offline FK/IK + CPG foot-trajectory plots (matplotlib)
 ```
 
 ## Safety

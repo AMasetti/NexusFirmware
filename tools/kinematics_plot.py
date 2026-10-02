@@ -1,10 +1,10 @@
 """
-Optimus Biped Simulation
-========================
+Optimus Kinematics Plot
+=======================
 Simulates FK/IK and visualises foot trajectories + CPG gait cycles.
 Run without hardware:
-    pip install -r requirements.txt
-    python sim.py
+    pip install -r tools/requirements.txt
+    python tools/kinematics_plot.py
 """
 
 import numpy as np
