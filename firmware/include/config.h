@@ -245,11 +245,11 @@
 #define ARM_SERVO_DIR_HIP_YAW          (+1.0f)
 
 #define ARM_SERVO_OFFSET_DEG_R_SHOULDER_FB    0.0f
-#define ARM_SERVO_OFFSET_DEG_R_SHOULDER_LAT   0.0f
-#define ARM_SERVO_OFFSET_DEG_R_FOREARM_LAT    0.0f
+#define ARM_SERVO_OFFSET_DEG_R_SHOULDER_LAT   -90.0f  // 0 rad = arm at side, not T-pose
+#define ARM_SERVO_OFFSET_DEG_R_FOREARM_LAT    -90.0f  // 0 rad = forearm hanging down
 #define ARM_SERVO_OFFSET_DEG_L_SHOULDER_FB    0.0f
-#define ARM_SERVO_OFFSET_DEG_L_SHOULDER_LAT   0.0f
-#define ARM_SERVO_OFFSET_DEG_L_FOREARM_LAT    0.0f
+#define ARM_SERVO_OFFSET_DEG_L_SHOULDER_LAT   -90.0f  // 0 rad = arm at side, not T-pose
+#define ARM_SERVO_OFFSET_DEG_L_FOREARM_LAT    -90.0f  // 0 rad = forearm hanging down
 #define ARM_SERVO_OFFSET_DEG_HIP_YAW          0.0f
 
 // ─── CPG parameters ───────────────────────────────────────────────────────────
