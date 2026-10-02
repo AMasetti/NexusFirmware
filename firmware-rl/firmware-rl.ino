@@ -29,10 +29,11 @@
 
 #include <Arduino.h>
 #include <Wire.h>
-#include <ArduinoJson.h>
-#include <WebSocketsServer.h>
 #include <WiFi.h>
 #include <ESPmDNS.h>
+#define WEBSOCKETS_NETWORK_TYPE NETWORK_ESP32
+#include <WebSocketsServer.h>
+#include <ArduinoJson.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
@@ -45,8 +46,8 @@
 
 // ─── Globals ──────────────────────────────────────────────────────────────────
 
-static MPU6050         imu;
-static PCA9685         servos;
+static MPU6050          imu;
+static PCA9685          servos;
 static WebSocketsServer ws(WS_PORT);
 static SemaphoreHandle_t state_mutex;
 
@@ -101,8 +102,8 @@ static void write_leg_servo(uint8_t ch, float angle_rad, float dir, float offset
 }
 
 // Write an arm servo (Futaba S3003): angle in radians → pulse in µs.
-static void write_arm_servo(uint8_t ch, float angle_rad, float min_deg, float max_deg) {
-    float deg = clampf(angle_rad * RAD2DEG, min_deg, max_deg);
+static void write_arm_servo(uint8_t ch, float angle_rad, float dir, float offset_deg, float min_deg, float max_deg) {
+    float deg = clampf(angle_rad * RAD2DEG * dir + offset_deg, min_deg, max_deg);
     float t   = (deg - (-90.0f)) / 180.0f;
     uint16_t us = (uint16_t)(ARM_SERVO_PWM_MIN + t * (ARM_SERVO_PWM_MAX - ARM_SERVO_PWM_MIN));
     servos.set_pulse_us(ch, us);
@@ -119,23 +120,23 @@ static void apply_joints(const JointAngles& q) {
     write_leg_servo(SERVO_R_KNEE,       q.r_knee,       SERVO_DIR_R_KNEE,       SERVO_OFFSET_DEG_R_KNEE,       JOINT_KNEE_MIN_DEG,       JOINT_KNEE_MAX_DEG);
     write_leg_servo(SERVO_R_ANKLE_ROLL, q.r_ankle_roll, SERVO_DIR_R_ANKLE_ROLL, SERVO_OFFSET_DEG_R_ANKLE_ROLL, JOINT_ANKLE_ROLL_MIN_DEG, JOINT_ANKLE_ROLL_MAX_DEG);
 
-    // Arms (Futaba S3003)
-    write_arm_servo(SERVO_L_SHOULDER_FB,  q.l_shoulder_fb,  JOINT_SHOULDER_FB_MIN_DEG,  JOINT_SHOULDER_FB_MAX_DEG);
-    write_arm_servo(SERVO_R_SHOULDER_FB,  q.r_shoulder_fb,  JOINT_SHOULDER_FB_MIN_DEG,  JOINT_SHOULDER_FB_MAX_DEG);
-    write_arm_servo(SERVO_L_SHOULDER_LAT, q.l_shoulder_lat, JOINT_SHOULDER_LAT_MIN_DEG, JOINT_SHOULDER_LAT_MAX_DEG);
-    write_arm_servo(SERVO_R_SHOULDER_LAT, q.r_shoulder_lat, JOINT_SHOULDER_LAT_MIN_DEG, JOINT_SHOULDER_LAT_MAX_DEG);
-    write_arm_servo(SERVO_L_FOREARM_LAT,  q.l_forearm_lat,  JOINT_FOREARM_LAT_MIN_DEG,  JOINT_FOREARM_LAT_MAX_DEG);
-    write_arm_servo(SERVO_R_FOREARM_LAT,  q.r_forearm_lat,  JOINT_FOREARM_LAT_MIN_DEG,  JOINT_FOREARM_LAT_MAX_DEG);
-    write_arm_servo(SERVO_HIP_YAW,        q.hip_yaw,        JOINT_HIP_YAW_MIN_DEG,      JOINT_HIP_YAW_MAX_DEG);
+    // Arms (Futaba S3003) — dir + offset so 0 rad = arms hanging at sides
+    write_arm_servo(SERVO_L_SHOULDER_FB,  q.l_shoulder_fb,  ARM_SERVO_DIR_L_SHOULDER_FB,  ARM_SERVO_OFFSET_DEG_L_SHOULDER_FB,  JOINT_SHOULDER_FB_MIN_DEG,  JOINT_SHOULDER_FB_MAX_DEG);
+    write_arm_servo(SERVO_R_SHOULDER_FB,  q.r_shoulder_fb,  ARM_SERVO_DIR_R_SHOULDER_FB,  ARM_SERVO_OFFSET_DEG_R_SHOULDER_FB,  JOINT_SHOULDER_FB_MIN_DEG,  JOINT_SHOULDER_FB_MAX_DEG);
+    write_arm_servo(SERVO_L_SHOULDER_LAT, q.l_shoulder_lat, ARM_SERVO_DIR_L_SHOULDER_LAT, ARM_SERVO_OFFSET_DEG_L_SHOULDER_LAT, JOINT_SHOULDER_LAT_MIN_DEG, JOINT_SHOULDER_LAT_MAX_DEG);
+    write_arm_servo(SERVO_R_SHOULDER_LAT, q.r_shoulder_lat, ARM_SERVO_DIR_R_SHOULDER_LAT, ARM_SERVO_OFFSET_DEG_R_SHOULDER_LAT, JOINT_SHOULDER_LAT_MIN_DEG, JOINT_SHOULDER_LAT_MAX_DEG);
+    write_arm_servo(SERVO_L_FOREARM_LAT,  q.l_forearm_lat,  ARM_SERVO_DIR_L_FOREARM_LAT,  ARM_SERVO_OFFSET_DEG_L_FOREARM_LAT,  JOINT_FOREARM_LAT_MIN_DEG,  JOINT_FOREARM_LAT_MAX_DEG);
+    write_arm_servo(SERVO_R_FOREARM_LAT,  q.r_forearm_lat,  ARM_SERVO_DIR_R_FOREARM_LAT,  ARM_SERVO_OFFSET_DEG_R_FOREARM_LAT,  JOINT_FOREARM_LAT_MIN_DEG,  JOINT_FOREARM_LAT_MAX_DEG);
+    write_arm_servo(SERVO_HIP_YAW,        q.hip_yaw,        ARM_SERVO_DIR_HIP_YAW,        ARM_SERVO_OFFSET_DEG_HIP_YAW,        JOINT_HIP_YAW_MIN_DEG,      JOINT_HIP_YAW_MAX_DEG);
 }
 
 // ─── WebSocket ────────────────────────────────────────────────────────────────
 
-static void on_ws_event(uint8_t num, WStype_t type, uint8_t* payload, size_t len) {
+static void on_ws_event(uint8_t num, WStype_t type, uint8_t* data, size_t len) {
     if (type != WStype_TEXT) return;
 
     StaticJsonDocument<512> doc;
-    if (deserializeJson(doc, payload, len) != DeserializationError::Ok) return;
+    if (deserializeJson(doc, data, len) != DeserializationError::Ok) return;
 
     const char* cmd = doc["cmd"] | "";
 
@@ -144,14 +145,14 @@ static void on_ws_event(uint8_t num, WStype_t type, uint8_t* payload, size_t len
         if (a.isNull()) return;
 
         JointAngles q;
-        q.l_hip_roll    = a["l_hip_roll"]    | 0.0f;
-        q.l_hip_pitch   = a["l_hip_pitch"]   | 0.0f;
-        q.l_knee        = a["l_knee"]        | 0.0f;
-        q.l_ankle_roll  = a["l_ankle_roll"]  | 0.0f;
-        q.r_hip_roll    = a["r_hip_roll"]    | 0.0f;
-        q.r_hip_pitch   = a["r_hip_pitch"]   | 0.0f;
-        q.r_knee        = a["r_knee"]        | 0.0f;
-        q.r_ankle_roll  = a["r_ankle_roll"]  | 0.0f;
+        q.l_hip_roll     = a["l_hip_roll"]     | 0.0f;
+        q.l_hip_pitch    = a["l_hip_pitch"]    | 0.0f;
+        q.l_knee         = a["l_knee"]         | 0.0f;
+        q.l_ankle_roll   = a["l_ankle_roll"]   | 0.0f;
+        q.r_hip_roll     = a["r_hip_roll"]     | 0.0f;
+        q.r_hip_pitch    = a["r_hip_pitch"]    | 0.0f;
+        q.r_knee         = a["r_knee"]         | 0.0f;
+        q.r_ankle_roll   = a["r_ankle_roll"]   | 0.0f;
         q.l_shoulder_fb  = a["l_shoulder_fb"]  | 0.0f;
         q.r_shoulder_fb  = a["r_shoulder_fb"]  | 0.0f;
         q.l_shoulder_lat = a["l_shoulder_lat"] | 0.0f;
@@ -187,16 +188,16 @@ static void task_imu(void*) {
 
     for (;;) {
         if (imu.update(dt)) {
-            IMUEstimate est = imu.estimate();
-            xSemaphoreTake(state_mutex, portMAX_DELAY);
-            g_imu.pitch    = est.pitch;
-            g_imu.roll     = est.roll;
-            g_imu.yaw_rate = est.yaw_rate;
+            IMUEstimate      est = imu.estimate();
             MPU6050::RawData raw = imu.raw();
+            xSemaphoreTake(state_mutex, portMAX_DELAY);
+            g_imu.pitch    = est.pitch_rad;
+            g_imu.roll     = est.roll_rad;
+            g_imu.yaw_rate = est.yaw_rate_rad_s;
             // Convert raw gyro int16 → rad/s (250 dps range: 131 LSB/°/s)
-            g_imu.gx = raw.gx / 131.0f * DEG2RAD;
-            g_imu.gy = raw.gy / 131.0f * DEG2RAD;
-            g_imu.gz = raw.gz / 131.0f * DEG2RAD;
+            g_imu.gx = raw.gyro_x / 131.0f * DEG2RAD;
+            g_imu.gy = raw.gyro_y / 131.0f * DEG2RAD;
+            g_imu.gz = raw.gyro_z / 131.0f * DEG2RAD;
             xSemaphoreGive(state_mutex);
         }
         vTaskDelayUntil(&wake, period);
@@ -212,10 +213,11 @@ static void task_servo(void*) {
 
     for (;;) {
         xSemaphoreTake(state_mutex, portMAX_DELAY);
-        IMUState   imu_snap    = g_imu;
+        IMUState imu_snap;
+        memcpy(&imu_snap, (const void*)&g_imu, sizeof(IMUState));
         JointAngles joints_snap;
         memcpy(&joints_snap, (const void*)&g_joints, sizeof(JointAngles));
-        bool halted          = g_halted;
+        bool     halted      = g_halted;
         uint32_t last_cmd_ms = g_last_cmd_ms;
         xSemaphoreGive(state_mutex);
 
@@ -256,7 +258,8 @@ static void task_telemetry(void*) {
         ws.loop();
 
         xSemaphoreTake(state_mutex, portMAX_DELAY);
-        IMUState   imu_snap = g_imu;
+        IMUState imu_snap;
+        memcpy(&imu_snap, (const void*)&g_imu, sizeof(IMUState));
         JointAngles j;
         memcpy(&j, (const void*)&g_joints, sizeof(JointAngles));
         xSemaphoreGive(state_mutex);

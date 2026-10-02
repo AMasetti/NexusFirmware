@@ -1,4 +1,4 @@
-default_fqbn: esp32:esp32:esp32c3
+default_fqbn: esp32:esp32:esp32c3:CDCOnBoot=cdc,PartitionScheme=huge_app
 default_port: /dev/cu.usbmodem*
 
 # Libraries required (install via Arduino CLI or IDE Library Manager):

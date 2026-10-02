@@ -26,12 +26,18 @@
 #define PCA9685_FREQ_HZ 50
 
 // Servo PWM range (MG995 legs)
+#define SERVO_MIN_DEG   -90.0f
+#define SERVO_MAX_DEG    90.0f
 #define SERVO_PWM_MIN    600   // µs
 #define SERVO_PWM_MAX   2650   // µs
 
 // Servo PWM range (Futaba S3003 arms)
-#define ARM_SERVO_PWM_MIN    900   // µs
-#define ARM_SERVO_PWM_MAX   2100   // µs
+// Widened 2026-08-11: 900–2100 only reached ~120 deg of the S3003's ~180 deg
+// travel, so shoulder_lat stalled ~45 deg short of hanging fully down on both
+// arms. Extended 150 us per side (= 22.5 deg each at 6.667 us/deg) to recover
+// 45 deg of total range. Affects ALL arm channels, not just shoulder_lat.
+#define ARM_SERVO_PWM_MIN    750   // µs
+#define ARM_SERVO_PWM_MAX   2250   // µs
 
 // ─── Servo channel mapping ────────────────────────────────────────────────────
 // Must match firmware/include/config.h exactly.
@@ -62,34 +68,69 @@
 #define SERVO_DIR_L_KNEE          (-1.0f)
 #define SERVO_DIR_L_ANKLE_ROLL    (-1.0f)
 
-#define SERVO_OFFSET_DEG_R_ANKLE_ROLL   (+8.0f)
-#define SERVO_OFFSET_DEG_R_KNEE        (-10.0f)
-#define SERVO_OFFSET_DEG_R_HIP_PITCH   (+10.0f)
-#define SERVO_OFFSET_DEG_R_HIP_ROLL     (+8.0f)
-#define SERVO_OFFSET_DEG_L_HIP_ROLL     (-8.0f)
-#define SERVO_OFFSET_DEG_L_HIP_PITCH     0.0f
-#define SERVO_OFFSET_DEG_L_KNEE          0.0f
-#define SERVO_OFFSET_DEG_L_ANKLE_ROLL   (-8.0f)
+// Balanced with L (-5) — R was +15, and unequal magnitudes on a mirrored pair
+// (SERVO_DIR_R = +1, L = -1) leave the feet tilted relative to each other.
+#define SERVO_OFFSET_DEG_R_ANKLE_ROLL    (+8.0f)   // JOINTS.md ch0: flat foot
+// Restored from docs/JOINTS.md "Servo direction and offset — leg channels",
+// which is the bench-verified T-pose centring table. firmware-rl had drifted:
+// R knee was +10 (table says -10) and L knee +10 (table says 0). Because
+// SERVO_DIR_R_KNEE = +1 and SERVO_DIR_L_KNEE = -1, an identical offset on the
+// pair pushes the two knees in OPPOSITE physical directions — which is why the
+// right leg flexed visibly more than the left for the same command.
+#define SERVO_OFFSET_DEG_R_KNEE         (-10.0f)  // JOINTS.md ch1: halt 80 deg
+#define SERVO_OFFSET_DEG_R_HIP_PITCH    (+10.0f)  // JOINTS.md ch2: halt 100 deg
+// Legs sat too wide at +20/-10. Halved both magnitudes to close the stance;
+// these are the axis that splays the legs (DIR is -1 on R, +1 on L, so the
+// opposite signs push both outward). Tune on hardware.
+// Balanced 2026-08-15: R was +10 and L was -5. With SERVO_DIR_R = -1 and
+// SERVO_DIR_L = +1 those unequal magnitudes leave a constant sideways bias,
+// and on hardware the robot only ever leaned onto the right foot — the left
+// leg never received the body weight. Equal magnitudes remove the bias.
+#define SERVO_OFFSET_DEG_R_HIP_ROLL      (+8.0f)  // was +10, before that +20 / -20
+#define SERVO_OFFSET_DEG_L_HIP_ROLL      (-8.0f)  // was -5
+#define SERVO_OFFSET_DEG_L_HIP_PITCH     (0.0f)   // JOINTS.md ch13: halt 90 deg
+#define SERVO_OFFSET_DEG_L_KNEE          (0.0f)   // JOINTS.md ch14: halt 90 deg
+#define SERVO_OFFSET_DEG_L_ANKLE_ROLL   (-8.0f)   // JOINTS.md ch15: flat foot
 
-// Arm servos: centered at 90°, no direction flip needed for RL mode
-// (PC sends absolute angles; arms receive them as-is)
-#define ARM_SERVO_DIR       (+1.0f)
-#define ARM_SERVO_OFFSET     0.0f
+// Arm servo dirs — +1 normal, -1 inverted (servo mounted mirrored).
+// R and L shoulder_lat are mirrored: same signal must move both arms down.
+// Verified 2026-08-11: R needs -90 deg to hang down, L needs +90 deg to hang down
+// → they are physically inverted relative to each other.
+#define ARM_SERVO_DIR_L_SHOULDER_FB   (+1.0f)
+#define ARM_SERVO_DIR_R_SHOULDER_FB   (+1.0f)
+#define ARM_SERVO_DIR_L_SHOULDER_LAT  (+1.0f)
+#define ARM_SERVO_DIR_R_SHOULDER_LAT  (+1.0f)
+#define ARM_SERVO_DIR_L_FOREARM_LAT   (+1.0f)
+#define ARM_SERVO_DIR_R_FOREARM_LAT   (+1.0f)
+#define ARM_SERVO_DIR_HIP_YAW         (+1.0f)
+
+// Arm servo offsets [degrees] — applied after dir: physical = angle_rad*RAD2DEG*dir + offset.
+// write_arm_servo maps [-90,+90] → [PWM_MIN, PWM_MAX], center (0 deg) = T-pose.
+// offset = -90 → 0 rad input = arms hanging at sides.
+#define ARM_SERVO_OFFSET_DEG_L_SHOULDER_FB   (+15.0f)
+#define ARM_SERVO_OFFSET_DEG_R_SHOULDER_FB   (+5.0f)
+#define ARM_SERVO_OFFSET_DEG_L_SHOULDER_LAT   (0.0f)
+#define ARM_SERVO_OFFSET_DEG_R_SHOULDER_LAT   (0.0f)
+#define ARM_SERVO_OFFSET_DEG_L_FOREARM_LAT   (-20.0f)
+#define ARM_SERVO_OFFSET_DEG_R_FOREARM_LAT   (+5.0f)
+#define ARM_SERVO_OFFSET_DEG_HIP_YAW          0.0f
 
 // ─── Per-joint soft limits [degrees] ─────────────────────────────────────────
 // ESP32 clamps incoming angles before writing — last line of defence.
 #define JOINT_HIP_ROLL_MIN_DEG      -45.0f
 #define JOINT_HIP_ROLL_MAX_DEG       45.0f
-#define JOINT_HIP_PITCH_MIN_DEG     -45.0f
-#define JOINT_HIP_PITCH_MAX_DEG      45.0f
+// RL policy (run_27) commands up to 55.5 deg here — Servo-Knee-*-Top maps to
+// hip_pitch, and the old +/-45 clamp truncated the peak of every stride.
+#define JOINT_HIP_PITCH_MIN_DEG    -105.0f
+#define JOINT_HIP_PITCH_MAX_DEG     105.0f
 #define JOINT_KNEE_MIN_DEG          -70.0f
 #define JOINT_KNEE_MAX_DEG           70.0f
 #define JOINT_ANKLE_ROLL_MIN_DEG    -90.0f
 #define JOINT_ANKLE_ROLL_MAX_DEG     90.0f
 #define JOINT_SHOULDER_FB_MIN_DEG  -120.0f
 #define JOINT_SHOULDER_FB_MAX_DEG   120.0f
-#define JOINT_SHOULDER_LAT_MIN_DEG -120.0f
-#define JOINT_SHOULDER_LAT_MAX_DEG  120.0f
+#define JOINT_SHOULDER_LAT_MIN_DEG -180.0f
+#define JOINT_SHOULDER_LAT_MAX_DEG  180.0f
 #define JOINT_FOREARM_LAT_MIN_DEG   -90.0f
 #define JOINT_FOREARM_LAT_MAX_DEG    90.0f
 #define JOINT_HIP_YAW_MIN_DEG       -45.0f
