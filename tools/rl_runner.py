@@ -79,9 +79,66 @@ HW_JOINT_NAMES = [
 ]
 HW_TO_IDX = {n: i for i, n in enumerate(HW_JOINT_NAMES)}
 
-# sim obs joint order (matches optimus_cpg_env _get_obs jpos ordering)
-# This must match the XML joint order — same as ACTUATOR_NAMES mapped to hw names.
-SIM_OBS_ORDER = [SIM_TO_HW[a] for a in ACTUATOR_NAMES]
+# Full 23-joint order from qpos[7:] — must match XML joint order exactly.
+# Unactuated (passive/parallelogram) joints are reconstructed via constraints:
+#   Unactuated-Knee-X-Top    = -Servo-Knee-X-Top
+#   Unactuated-Tendon-X-Top  = -Servo-Knee-X-Top
+#   Unactuated-Knee-X-Bottom  = -Servo-Knee-X-Bottom
+#   Unactuated-Tendon-X-Bottom = +Servo-Knee-X-Bottom
+# Each entry: (hw_name_or_None, sign_if_unactuated, source_hw_name_if_unactuated)
+_JPOS_MAP = [
+    ("hip_yaw",       1,  None),               # 0  Servo-Hip-Body-Rotation
+    ("l_shoulder_fb", 1,  None),               # 1  Servo-Showlder-L-Front-Back
+    ("l_shoulder_lat",1,  None),               # 2  Servo-Showlder-L-Inward-Outward
+    ("l_forearm_lat", 1,  None),               # 3  Servo-Forearm-L
+    ("r_shoulder_fb", 1,  None),               # 4  Servo-Showlder-R-Front-Back
+    ("r_shoulder_lat",1,  None),               # 5  Servo-Showlder-R-Inward-Outward
+    ("r_forearm_lat", 1,  None),               # 6  Servo-Forearm-R
+    ("l_hip_roll",    1,  None),               # 7  Servo-Hip-L
+    (None,           -1,  "l_hip_pitch"),      # 8  Unactuated-Knee-L-Top
+    ("l_hip_pitch",   1,  None),               # 9  Servo-Knee-L-Top
+    ("l_knee",        1,  None),               # 10 Servo-Knee-L-Bottom
+    (None,           -1,  "l_knee"),           # 11 Unactuated-Knee-L-Bottom
+    (None,           +1,  "l_knee"),           # 12 Unactuated-Tendon-L-Bottom
+    ("l_ankle_roll",  1,  None),               # 13 Servo-Ankle-L
+    (None,           -1,  "l_hip_pitch"),      # 14 Unactuated-Tendon-L-Top
+    ("r_hip_roll",    1,  None),               # 15 Servo-Hip-R
+    (None,           -1,  "r_hip_pitch"),      # 16 Unactuated-Knee-R-Top
+    ("r_hip_pitch",   1,  None),               # 17 Servo-Knee-R-Top
+    ("r_knee",        1,  None),               # 18 Servo-Knee-R-Bottom
+    (None,           -1,  "r_knee"),           # 19 Unactuated-Knee-R-Bottom
+    (None,           +1,  "r_knee"),           # 20 Unactuated-Tendon-R-Bottom
+    ("r_ankle_roll",  1,  None),               # 21 Servo-Ankle-R
+    (None,           -1,  "r_hip_pitch"),      # 22 Unactuated-Tendon-R-Top
+]
+
+MAX_RESIDUAL = 0.20   # rad — must match optimus_cpg_env.MAX_RESIDUAL
+
+_SIM_AXIS_FLIP: set = set()
+
+# Arm command smoothing — see the filter in run(). Futaba S3003 servos cannot
+# follow the policy's raw per-step jumps and buzz. alpha=0.25 at 50 Hz gives a
+# ~25 ms time constant: fast enough to keep the arm swing, slow enough to stop
+# the hunting. Raise toward 1.0 for more responsiveness, lower for less buzz.
+ARM_SMOOTH_ALPHA = 0.25
+
+# Swap the left/right ankle commands before sending to the ESP32. Observed on
+# hardware: the swing-foot lift appeared on the stance ankle. Set False to
+# disable if the ankle wiring/mapping is corrected at the source.
+SWAP_HW_ANKLES = False
+_ARM_SMOOTH_JOINTS = (
+    "l_shoulder_fb", "r_shoulder_fb",
+    "l_shoulder_lat", "r_shoulder_lat",
+    "l_forearm_lat", "r_forearm_lat",
+    "hip_yaw",
+)
+
+# Walking pose offset: firmware halt = T-pose (0 rad), RL walking = arms hanging.
+# L needs -90°, R needs +90° (servo mounted mirrored on R side).
+_HW_OFFSETS = {
+    "l_shoulder_lat": np.radians(-90.0),
+    "r_shoulder_lat": np.radians(+90.0),
+}
 
 
 class RLRunner:
@@ -121,18 +178,21 @@ class RLRunner:
 
         self._cpg = CPG()
 
-        # Latest state from ESP32
+        # Latest state from ESP32 (15 actuated joints, hw-name indexed)
         self._imu_pitch    = 0.0
         self._imu_roll     = 0.0
         self._imu_yaw_rate = 0.0
-        self._joint_pos    = np.zeros(15, dtype=np.float32)
-        self._joint_vel    = np.zeros(15, dtype=np.float32)  # estimated via finite diff
-        self._prev_joint   = np.zeros(15, dtype=np.float32)
+        self._hw_pos  = {n: 0.0 for n in HW_JOINT_NAMES}
+        self._hw_vel  = {n: 0.0 for n in HW_JOINT_NAMES}
+        self._prev_hw = {n: 0.0 for n in HW_JOINT_NAMES}
+        # Last filtered arm command (see ARM_SMOOTH_ALPHA); empty = not yet seeded.
+        self._arm_filt: dict = {}
         self._state_lock   = threading.Lock()
         self._state_q      = queue.Queue(maxsize=4)
 
-        self._ws      = None
-        self._running = False
+        self._ws           = None
+        self._running      = False
+        self._connected_ev = threading.Event()
 
     # ── WebSocket callbacks ───────────────────────────────────────────────────
 
@@ -150,13 +210,11 @@ class RLRunner:
             self._imu_roll     = float(imu.get("roll",     0.0))
             self._imu_yaw_rate = float(imu.get("yaw_rate", 0.0))
 
-            new_pos = np.array(
-                [float(joints.get(n, 0.0)) for n in SIM_OBS_ORDER],
-                dtype=np.float32
-            )
-            self._joint_vel  = (new_pos - self._prev_joint) / self.ctrl_dt
-            self._prev_joint = new_pos.copy()
-            self._joint_pos  = new_pos
+            for n in HW_JOINT_NAMES:
+                new_v = float(joints.get(n, 0.0))
+                self._hw_vel[n] = (new_v - self._prev_hw[n]) / self.ctrl_dt
+                self._prev_hw[n] = new_v
+                self._hw_pos[n]  = new_v
 
     def _on_error(self, ws, error):
         print(f"[WS] Error: {error}")
@@ -168,8 +226,19 @@ class RLRunner:
     def _on_open(self, ws):
         print("[WS] Connected to ESP32")
         self._running = True
+        self._connected_ev.set()
 
     # ── Obs construction (mirrors optimus_cpg_env._get_obs) ──────────────────
+
+    def _build_jvec(self, use_vel: bool) -> np.ndarray:
+        src = self._hw_vel if use_vel else self._hw_pos
+        out = np.zeros(23, dtype=np.float32)
+        for idx, (hw_name, sign, src_name) in enumerate(_JPOS_MAP):
+            if hw_name is not None:
+                out[idx] = float(src[hw_name])
+            else:
+                out[idx] = sign * float(src[src_name])
+        return out
 
     def _get_obs(self) -> np.ndarray:
         with self._state_lock:
@@ -179,8 +248,8 @@ class RLRunner:
             ], dtype=np.float32)
             imu = np.array([self._imu_pitch, self._imu_roll, self._imu_yaw_rate],
                            dtype=np.float32)
-            jpos = self._joint_pos.copy()
-            jvel = self._joint_vel.copy()
+            jpos = self._build_jvec(use_vel=False)
+            jvel = self._build_jvec(use_vel=True)
 
         return np.concatenate([cpg_phase, imu, jpos, jvel])
 
@@ -215,14 +284,19 @@ class RLRunner:
         ws_thread = threading.Thread(target=self._ws.run_forever, daemon=True)
         ws_thread.start()
 
-        # Wait for connection
-        for _ in range(50):
-            if self._running:
-                break
-            time.sleep(0.1)
-        if not self._running:
+        # Wait for connection (up to 15s to allow mDNS resolution)
+        if not self._connected_ev.wait(timeout=15.0):
             print("[runner] Could not connect — is firmware-rl running?")
             return
+
+        # Wait for first telemetry packet before starting control loop
+        print("[runner] Waiting for first telemetry...")
+        for _ in range(100):
+            with self._state_lock:
+                got_data = any(v != 0.0 for v in self._hw_pos.values())
+            if got_data:
+                break
+            time.sleep(0.05)
 
         print("[runner] Control loop running at 50 Hz. Ctrl+C to stop.")
         step = 0
@@ -236,17 +310,47 @@ class RLRunner:
                 action, _ = self._model.predict(obs_norm[np.newaxis, :], deterministic=True)
                 action = action[0]  # (15,)
 
-                # CPG step — pass current IMU roll for phase reset
+                # CPG step + IMU stabilisation (mirrors sim env)
                 with self._state_lock:
-                    roll = self._imu_roll
+                    pitch = self._imu_pitch
+                    roll  = self._imu_roll
+                    yaw_r = self._imu_yaw_rate
                 cpg_targets = self._cpg.step(self.ctrl_dt, roll=roll)
+                cpg_targets = self._cpg.stabilise(cpg_targets, pitch, roll, yaw_r)
 
-                # Add RL residual (±0.20 rad, matches MAX_RESIDUAL in env)
+                # Add RL residual — action is in [-1,1], scale by MAX_RESIDUAL (matches env)
                 hw_angles = {}
                 for i, sim_name in enumerate(ACTUATOR_NAMES):
                     hw_name = SIM_TO_HW[sim_name]
                     base    = cpg_targets.get(sim_name, 0.0)
-                    hw_angles[hw_name] = float(base + action[i])
+                    val     = float(base + MAX_RESIDUAL * action[i])
+                    if hw_name in _HW_OFFSETS:
+                        val += _HW_OFFSETS[hw_name]
+                    if hw_name in _SIM_AXIS_FLIP:
+                        val = -val
+                    hw_angles[hw_name] = val
+
+                # Hardware-only ankle swap. On the real robot the swing-foot lift
+                # landed on the STANCE ankle: the ankle channels are mirrored
+                # relative to the sim's L/R convention. Swapping here rather than
+                # in cpg.py keeps the simulation correct (swapping it there makes
+                # the sim robot fall at step 63 instead of walking 500).
+                if SWAP_HW_ANKLES:
+                    hw_angles["l_ankle_roll"], hw_angles["r_ankle_roll"] = \
+                        hw_angles["r_ankle_roll"], hw_angles["l_ankle_roll"]
+
+                # Smooth the arm commands. The policy's raw output jumps 6-11 deg
+                # per 50 Hz step (300-540 deg/s); a Futaba S3003 is a slow analog
+                # servo (~0.23 s/60 deg) and cannot track that, so it hunts and
+                # buzzes. MuJoCo's PD + link inertia filter this in sim; the
+                # runner sends it straight to the servo. Legs (MG995, higher
+                # torque and speed) are left unfiltered so the gait is unchanged.
+                for hw_name in _ARM_SMOOTH_JOINTS:
+                    prev = self._arm_filt.get(hw_name)
+                    cur  = hw_angles[hw_name]
+                    hw_angles[hw_name] = cur if prev is None else \
+                        prev + ARM_SMOOTH_ALPHA * (cur - prev)
+                    self._arm_filt[hw_name] = hw_angles[hw_name]
 
                 self._send_joints(hw_angles)
 
