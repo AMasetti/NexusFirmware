@@ -1,5 +1,6 @@
 #pragma once
 #include "cpg.h"
+#include "../imu/imu_estimate.h"
 
 // ─── IMU Stabilizer ───────────────────────────────────────────────────────────
 // Reads estimated pitch/roll from complementary filter and adjusts CPG offsets
@@ -8,12 +9,6 @@
 // Strategy:
 //   |pitch| > threshold → adjust hip_pitch_offset (θ2) on both legs equally
 //   |roll|  > threshold → adjust ankle_roll_offset (θ4) — critical for lateral balance
-
-struct IMUEstimate {
-    float pitch_rad;          // positive = tilting forward  (rotation around X)
-    float roll_rad;           // positive = tilting right    (rotation around Z)
-    float yaw_rate_rad_s;     // positive = rotating CCW from above (rotation around Y)
-};
 
 class Stabilizer {
 public:

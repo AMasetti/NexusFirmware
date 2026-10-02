@@ -1,6 +1,6 @@
 #pragma once
 #include <stdint.h>
-#include "../gait/stabilizer.h"   // for IMUEstimate
+#include "imu_estimate.h"
 
 // ─── MPU6050 driver + complementary filter ────────────────────────────────────
 // Reads raw gyro/accel via I2C and produces fused pitch/roll estimates.
