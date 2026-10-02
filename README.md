@@ -207,6 +207,10 @@ optimus/
 │   └── imu-balance.md        # IMU axis orientation, complementary filter, balance gains
 └── tools/
     ├── rl_runner.py          # streams trained RL policy actions to firmware-rl over WiFi
+    ├── walk_json.py          # keyframe walk driven from walk_poses.json (hardware-tuned)
+    ├── walk_keyframes.py     # keyframe walk defined in Python
+    ├── simple_walk.py        # weight-shifting CPG walk, no RL
+    ├── jump_runner.py        # scripted squat-and-jump
     └── kinematics_plot.py    # offline FK/IK + CPG foot-trajectory plots (matplotlib)
 ```
 
